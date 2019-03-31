@@ -4,3 +4,6 @@
 [submodule "Vkx"]
 	path = Vkx
 	url = https://github.com/jambolo/Vkx.git
+[submodule "Confetti"]
+	path = Confetti
+	url = https://github.com/jambolo/Confetti.git
