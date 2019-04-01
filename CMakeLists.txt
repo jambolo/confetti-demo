@@ -5,6 +5,11 @@ option(BUILD_SHARED_LIBS "Build libraries as DLLs" FALSE)
 
 find_package(glm REQUIRED)
 find_package(Vulkan REQUIRED)
+find_package(nlohmann_json REQUIRED)
+
+set(VKTUTORIAL_INCLUDE_PATHS
+    .
+)
 
 set(VKTUTORIAL_SOURCES
     stb_image.h
@@ -13,10 +18,6 @@ set(VKTUTORIAL_SOURCES
 )
 source_group(Sources FILES ${VKTUTORIAL_SOURCES})
 
-set(VKTUTORIAL_INCLUDE_PATHS
-    .
-)
-
 set(VKTUTORIAL_SHADER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.vert
@@ -24,7 +25,17 @@ set(VKTUTORIAL_SHADER_SOURCES
 source_group(Shaders FILES ${VKTUTORIAL_SHADER_SOURCES})
 
 add_executable(vktutorial ${VKTUTORIAL_SOURCES})
-target_link_libraries(vktutorial Glfwx Vkx glm::glm Vulkan::Vulkan)
+target_link_libraries(vktutorial
+    Glfwx
+    Vkx
+    glm::glm
+    Vulkan::Vulkan
+    Confetti
+    nlohmann_json::nlohmann_json
+)
+target_include_directories(vktutorial PRIVATE ${VKTUTORIAL_INCLUDE_PATHS})
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_compile_definitions(vktutorial
     PRIVATE
         -DNOMINMAX
@@ -34,9 +45,10 @@ target_compile_definitions(vktutorial
         -D_SECURE_SCL=0
         -D_SCL_SECURE_NO_WARNINGS
 )
-target_include_directories(vktutorial PRIVATE ${VKTUTORIAL_INCLUDE_PATHS})
-target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+add_subdirectory(Glfwx)
+add_subdirectory(Vkx)
+add_subdirectory(Confetti)
 
 # Copy the DLLs to next to the executable
 if (WIN32 AND BUILD_SHARED_LIBS)
@@ -83,6 +95,3 @@ add_custom_command(TARGET vktutorial POST_BUILD
         "${CMAKE_SOURCE_DIR}/models"
         "${PROJECT_BINARY_DIR}/models"
         )
-
-add_subdirectory(Glfwx)
-add_subdirectory(Vkx)
