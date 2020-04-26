@@ -1,31 +1,34 @@
 cmake_minimum_required (VERSION 3.10)
-project(vktutorial CXX)
+project(confetti-demo CXX)
 
 option(BUILD_SHARED_LIBS "Build libraries as DLLs" FALSE)
 
 find_package(glm REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(Misc REQUIRED)
+find_package(Msxmlx REQUIRED)
+find_package(Wx REQUIRED)
 
-set(VKTUTORIAL_INCLUDE_PATHS
+set(CONFETTI_DEMO_INCLUDE_PATHS
     .
 )
 
-set(VKTUTORIAL_SOURCES
+set(CONFETTI_DEMO_SOURCES
     stb_image.h
     tiny_obj_loader.h
-    vktutorial.cpp
+    confetti-demo.cpp
 )
-source_group(Sources FILES ${VKTUTORIAL_SOURCES})
+source_group(Sources FILES ${CONFETTI_DEMO_SOURCES})
 
-set(VKTUTORIAL_SHADER_SOURCES
+set(CONFETTI_DEMO_SHADER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader.vert
 )
-source_group(Shaders FILES ${VKTUTORIAL_SHADER_SOURCES})
+source_group(Shaders FILES ${CONFETTI_DEMO_SHADER_SOURCES})
 
-add_executable(vktutorial ${VKTUTORIAL_SOURCES})
-target_link_libraries(vktutorial
+add_executable(confetti-demo ${CONFETTI_DEMO_SOURCES})
+target_link_libraries(confetti-demo
     Glfwx
     Vkx
     glm::glm
@@ -33,10 +36,10 @@ target_link_libraries(vktutorial
     Confetti
     nlohmann_json::nlohmann_json
 )
-target_include_directories(vktutorial PRIVATE ${VKTUTORIAL_INCLUDE_PATHS})
+target_include_directories(confetti-demo PRIVATE ${CONFETTI_DEMO_INCLUDE_PATHS})
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-target_compile_definitions(vktutorial
+target_compile_definitions(confetti-demo
     PRIVATE
         -DNOMINMAX
         -DWIN32_LEAN_AND_MEAN
@@ -58,13 +61,13 @@ if (WIN32 AND BUILD_SHARED_LIBS)
     else()
         message(WARNING "glfw3 was not found.")
     endif()
-    add_custom_command(TARGET vktutorial POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${glfw3_LIBRARIES}/glfw3.dll" $<TARGET_FILE_DIR:vktutorial>)
+    add_custom_command(TARGET confetti-demo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${glfw3_LIBRARIES}/glfw3.dll" $<TARGET_FILE_DIR:confetti-demo>)
 endif()
 
 # Compile the shaders if necessary
 find_program(GLSLANGVALIDATOR NAMES glslangValidator glslangValidator.exe)
-foreach(GLSL ${VKTUTORIAL_SHADER_SOURCES})
+foreach(GLSL ${CONFETTI_DEMO_SHADER_SOURCES})
     get_filename_component(FILE_NAME ${GLSL} NAME)
     set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
     add_custom_command(
@@ -80,18 +83,4 @@ add_custom_target(
     DEPENDS ${SPIRV_BINARY_FILES}
 )
 
-add_dependencies(vktutorial shaders)
-
-add_custom_command(TARGET vktutorial POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/textures/"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/textures"
-        "${PROJECT_BINARY_DIR}/textures"
-        )
-
-add_custom_command(TARGET vktutorial POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/models/"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/models"
-        "${PROJECT_BINARY_DIR}/models"
-        )
+add_dependencies(confetti-demo shaders)
