@@ -4,6 +4,7 @@
 #include <Vkx/Camera.h>
 #include <Vkx/Image.h>
 #include <Vkx/Instance.h>
+#include <Vkx/Surface.h>
 #include <Vkx/SwapChain.h>
 #include <Vkx/Vkx.h>
 
@@ -43,7 +44,7 @@ static bool constexpr VALIDATION_LAYERS_REQUESTED = true;
 // These are the validation layers we will be using.
 std::vector<char const *> const VALIDATION_LAYERS =
 {
-    "VK_LAYER_LUNARG_standard_validation"
+    "VK_LAYER_KHRONOS_validation"   // Changed in Vulkan 1.1.126.0
 };
 
 // In order to display the output, we need a swap chain.
@@ -184,23 +185,6 @@ bool isSuitable(vk::PhysicalDevice const & physicalDevice, vk::SurfaceKHR const 
     return extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
 }
 
-vk::SampleCountFlagBits getMaxMsaa(vk::PhysicalDeviceProperties const & properties)
-{
-    unsigned counts = std::min((unsigned)properties.limits.framebufferColorSampleCounts,
-                               (unsigned)properties.limits.framebufferDepthSampleCounts);
-    if (counts == 0)
-        return vk::SampleCountFlagBits::e1;
-
-    int best = -1;
-    while (counts > 0)
-    {
-        ++best;
-        counts >>= 1;
-    }
-
-    return vk::SampleCountFlagBits(1 << best);
-}
-
 vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const & available)
 {
     // We get to choose ...
@@ -284,7 +268,7 @@ public:
         initializeVulkan();
 
         // Create a display surface. This is system-dependent feature and we use glfw to handle that.
-        surface_ = vk::UniqueSurfaceKHR(window_->createSurface(*instance_, nullptr), *instance_);
+        surface_ = std::make_unique<Vkx::Surface>(*window_, *instance_);
 
         choosePhysicalDevice();
         createLogicalDevice();
@@ -319,6 +303,11 @@ public:
         device_->waitIdle();
     }
 
+    void notifyFramebufferSizeChanged()
+    {
+        framebufferSizeChanged_ = true;
+    }
+
 private:
 
     static int constexpr WIDTH  = 1920;
@@ -332,16 +321,27 @@ private:
         alignas(16) glm::mat4 projection;
     };
 
+    class Window : public Glfwx::Window
+    {
+public:
+        Window(int width, int height, char const * title, HelloTriangleApplication * context)
+            : Glfwx::Window(width, height, title)
+            , context_(context)
+        {
+        }
+        virtual void onFramebufferSizeChanged(int, int) override
+        {
+            context_->notifyFramebufferSizeChanged();
+        }
+private:
+        HelloTriangleApplication * context_;
+    };
+
     void initializeWindow()
     {
-        Glfwx::Window::hint(Glfwx::Hint::eCLIENT_API, Glfwx::eNO_API);
-        Glfwx::Window::hint(Glfwx::Hint::eRESIZABLE, Glfwx::eFALSE);
-        window_ = std::make_unique<Glfwx::Window>(WIDTH, HEIGHT, "vktutorial");
-        window_->setFramebufferSizeChangedCallback(
-            [this] (Glfwx::Window *, int, int)
-            {
-                this->framebufferSizeChanged_ = true;
-            });
+        Glfwx::Window::hint(Glfwx::Window::Hint::CLIENT_API, Glfwx::Window::NO_API);
+        Glfwx::Window::hint(Glfwx::Window::Hint::RESIZABLE, Glfwx::GLFWX_FALSE);
+        window_ = std::make_unique<Window>(WIDTH, HEIGHT, "confetti-demo", this);
     }
 
     void initializeVulkan()
@@ -350,7 +350,7 @@ private:
         if (VALIDATION_LAYERS_REQUESTED && !Vkx::allLayersAvailable(VALIDATION_LAYERS))
             throw std::runtime_error("validation layers requested, but not available!");
 
-        vk::ApplicationInfo appInfo("Hello Triangle",
+        vk::ApplicationInfo appInfo("Confetti Demo",
                                     VK_MAKE_VERSION(1, 0, 0),
                                     "No Engine",
                                     VK_MAKE_VERSION(1, 0, 0),
@@ -368,6 +368,11 @@ private:
         {
             createInfo.setEnabledLayerCount((uint32_t)VALIDATION_LAYERS.size());
             createInfo.setPpEnabledLayerNames(VALIDATION_LAYERS.data());
+
+            // Changed in Vulkan 1.1.126.0
+            std::array<vk::ValidationFeatureEnableEXT, 1> enables = { vk::ValidationFeatureEnableEXT::eBestPractices };
+            vk::ValidationFeaturesEXT features((uint32_t)enables.size(), &enables[0]);
+            createInfo.setPNext(&features);
         }
 
         // Create a Vulkan instance
@@ -438,8 +443,6 @@ private:
                                                       throw std::runtime_error(
                                                           "choosePhysicalDevice: failed to find a suitable GPU!");
                                                   });
-        vk::PhysicalDeviceProperties properties = physicalDevice_->getProperties();
-        msaa_ = getMaxMsaa(properties);
 #if 0
         {
             std::cerr << "Physical Device chosen: " << properties.deviceName
@@ -473,13 +476,11 @@ private:
 
     void createLogicalDevice()
     {
-        findQueueFamilies(*physicalDevice_, physicalDevice_->surface(), graphicsFamily_, presentFamily_);
-
         float priority = 1.0f;
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-        queueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags(), graphicsFamily_, 1, &priority);
-        if (graphicsFamily_ != presentFamily_)
-            queueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags(), presentFamily_, 1, &priority);
+        queueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags(), physicalDevice_->graphicsQueueFamily(), 1, &priority);
+        if (physicalDevice_->graphicsQueueFamily() != physicalDevice_->presentQueueFamily())
+            queueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags(), physicalDevice_->presentQueueFamily(), 1, &priority);
 
         vk::PhysicalDeviceFeatures deviceFeatures;
         deviceFeatures.setSamplerAnisotropy(VK_TRUE);
@@ -499,8 +500,8 @@ private:
         }
 
         device_        = std::make_shared<Vkx::Device>(physicalDevice_, createInfo);
-        graphicsQueue_ = device_->getQueue(graphicsFamily_, 0);
-        presentQueue_  = device_->getQueue(presentFamily_, 0);
+        graphicsQueue_ = device_->getQueue(physicalDevice_->graphicsQueueFamily(), 0);
+        presentQueue_  = device_->getQueue(physicalDevice_->presentQueueFamily(), 0);
     }
 
     void createSwapChain()
@@ -516,17 +517,60 @@ private:
         swapChain_ = std::make_shared<Vkx::SwapChain>(device_,
                                                       surfaceFormat,
                                                       extent,
-                                                      graphicsFamily_,
-                                                      presentFamily_,
+                                                      device_->physical()->graphicsQueueFamily(),
+                                                      device_->physical()->presentQueueFamily(),
                                                       presentMode);
         framebufferSizeChanged_ = false;
+    }
+
+    void createCommandPools()
+    {
+        graphicsCommandPool_ =
+            device_->createCommandPoolUnique(vk::CommandPoolCreateInfo({}, device_->physical()->graphicsQueueFamily()));
+        transientCommandPool_ = device_->createCommandPoolUnique(
+            vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient,
+                                      device_->physical()->graphicsQueueFamily()));
+    }
+
+    void createColorResources()
+    {
+        resolveImage_ = Vkx::ResolveImage(device_,
+                                          transientCommandPool_.get(),
+                                          graphicsQueue_,
+                                          vk::ImageCreateInfo({},
+                                                              vk::ImageType::e2D,
+                                                              swapChain_->format(),
+                                                              { swapChain_->extent().width, swapChain_->extent().height, 1 },
+                                                              1,
+                                                              1,
+                                                              device_->physical()->maxMsaa(),
+                                                              vk::ImageTiling::eOptimal,
+                                                              vk::ImageUsageFlagBits::eTransientAttachment |
+                                                              vk::ImageUsageFlagBits::eColorAttachment));
+    }
+
+    void createDepthResources()
+    {
+        vk::Format format = findDepthFormat(*device_->physical());
+        depthImage_ = Vkx::DepthImage(device_,
+                                      transientCommandPool_.get(),
+                                      graphicsQueue_,
+                                      vk::ImageCreateInfo({},
+                                                          vk::ImageType::e2D,
+                                                          format,
+                                                          { swapChain_->extent().width, swapChain_->extent().height, 1 },
+                                                          1,
+                                                          1,
+                                                          device_->physical()->maxMsaa(),
+                                                          vk::ImageTiling::eOptimal,
+                                                          vk::ImageUsageFlagBits::eDepthStencilAttachment));
     }
 
     void createRenderPass()
     {
         vk::AttachmentDescription colorAttachment({},
                                                   swapChain_->format(),
-                                                  msaa_,
+                                                  device_->physical()->maxMsaa(),
                                                   vk::AttachmentLoadOp::eClear,
                                                   vk::AttachmentStoreOp::eStore,
                                                   vk::AttachmentLoadOp::eDontCare,
@@ -537,7 +581,7 @@ private:
 
         vk::AttachmentDescription depthAttachment({},
                                                   depthImage_.info().format,
-                                                  msaa_,
+                                                  device_->physical()->maxMsaa(),
                                                   vk::AttachmentLoadOp::eClear,
                                                   vk::AttachmentStoreOp::eDontCare,
                                                   vk::AttachmentLoadOp::eDontCare,
@@ -625,7 +669,7 @@ private:
         rasterizer.setFrontFace(vk::FrontFace::eCounterClockwise);  // This is bullshit because of glm::lookAt
         rasterizer.setLineWidth(1.0);
 
-        vk::PipelineMultisampleStateCreateInfo multisampling({}, msaa_);
+        vk::PipelineMultisampleStateCreateInfo multisampling({}, device_->physical()->maxMsaa());
 
         vk::PipelineColorBlendAttachmentState colorBlendAttachment;
         colorBlendAttachment.setColorWriteMask(Vkx::ColorComponentFlags::all);
@@ -659,48 +703,6 @@ private:
                                            *pipelineLayout_,
                                            *renderPass_,
                                            0));
-    }
-
-    void createCommandPools()
-    {
-        graphicsCommandPool_  = device_->createCommandPoolUnique(vk::CommandPoolCreateInfo({}, graphicsFamily_));
-        transientCommandPool_ = device_->createCommandPoolUnique(
-            vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient,
-                                      graphicsFamily_));
-    }
-
-    void createColorResources()
-    {
-        resolveImage_ = Vkx::ResolveImage(device_,
-                                          transientCommandPool_.get(),
-                                          graphicsQueue_,
-                                          vk::ImageCreateInfo({},
-                                                              vk::ImageType::e2D,
-                                                              swapChain_->format(),
-                                                              { swapChain_->extent().width, swapChain_->extent().height, 1 },
-                                                              1,
-                                                              1,
-                                                              msaa_,
-                                                              vk::ImageTiling::eOptimal,
-                                                              vk::ImageUsageFlagBits::eTransientAttachment |
-                                                              vk::ImageUsageFlagBits::eColorAttachment));
-    }
-
-    void createDepthResources()
-    {
-        vk::Format format = findDepthFormat(*device_->physical());
-        depthImage_ = Vkx::DepthImage(device_,
-                                      transientCommandPool_.get(),
-                                      graphicsQueue_,
-                                      vk::ImageCreateInfo({},
-                                                          vk::ImageType::e2D,
-                                                          format,
-                                                          { swapChain_->extent().width, swapChain_->extent().height, 1 },
-                                                          1,
-                                                          1,
-                                                          msaa_,
-                                                          vk::ImageTiling::eOptimal,
-                                                          vk::ImageUsageFlagBits::eDepthStencilAttachment));
     }
 
     void createFramebuffers()
@@ -992,8 +994,8 @@ private:
 
     void resetSwapChain()
     {
-        framebuffers_.clear();
         commandBuffers_.clear();
+        framebuffers_.clear();
         graphicsPipeline_.reset();
         pipelineLayout_.reset();
         renderPass_.reset();
@@ -1027,14 +1029,11 @@ private:
     std::shared_ptr<Vkx::Instance> instance_;
     vk::DispatchLoaderDynamic dynamicLoader_;
     vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic> messenger_;
-    uint32_t graphicsFamily_;
-    uint32_t presentFamily_;
-    vk::SampleCountFlagBits msaa_ = vk::SampleCountFlagBits::e1;
+    Vkx::Surface surface_;
     std::shared_ptr<Vkx::PhysicalDevice> physicalDevice_;
     std::shared_ptr<Vkx::Device> device_;
     vk::Queue graphicsQueue_;
     vk::Queue presentQueue_;
-    vk::UniqueSurfaceKHR surface_;
     std::shared_ptr<Vkx::SwapChain> swapChain_;
     vk::UniqueRenderPass renderPass_;
     vk::UniqueDescriptorSetLayout descriptorSetLayout_;
